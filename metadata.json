@@ -1,0 +1,10 @@
+{
+  "name": "AgriGIS Algérie - منصة المزارع والمحاصيل الجغرافية",
+  "description": "منصة جغرافية زراعية متكاملة مدعومة بمحرك PostGIS للبحث المكاني عن المزارع والمحاصيل والتحقق من حدود الأراضي ونطاقات القرب في الجزائر",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
