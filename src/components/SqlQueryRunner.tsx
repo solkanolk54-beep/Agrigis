@@ -9,7 +9,7 @@ interface SqlQueryRunnerProps {
 }
 
 export const SqlQueryRunner: React.FC<SqlQueryRunnerProps> = ({ engine, buyerLocation }) => {
-  const [selectedPreset, setSelectedPreset] = useState<'nearby_farms' | 'nearby_crops' | 'point_in_polygon' | 'extensions'>('nearby_farms');
+  const [selectedPreset, setSelectedPreset] = useState<'nearby_farms' | 'nearby_crops' | 'point_in_polygon' | 'farm_area' | 'extensions'>('nearby_farms');
   const [lon, setLon] = useState(buyerLocation.longitude);
   const [lat, setLat] = useState(buyerLocation.latitude);
   const [distanceMeters, setDistanceMeters] = useState(50000); // 50 km default
@@ -33,6 +33,9 @@ export const SqlQueryRunner: React.FC<SqlQueryRunnerProps> = ({ engine, buyerLoc
       setExecutionResult(res);
     } else if (selectedPreset === 'point_in_polygon') {
       const res = engine.queryTruckPointInPolygon(point);
+      setExecutionResult(res);
+    } else if (selectedPreset === 'farm_area') {
+      const res = engine.queryFarmsAreaList();
       setExecutionResult(res);
     } else if (selectedPreset === 'extensions') {
       setExecutionResult({
@@ -119,6 +122,19 @@ WHERE ST_Contains(
 );`;
     }
 
+    if (selectedPreset === 'farm_area') {
+      return `SELECT 
+    f.id,
+    f.name AS farm_name,
+    f.wilaya,
+    ROUND(ST_Area(f.boundary::geography)::numeric, 2) AS area_sq_meters,
+    ROUND((ST_Area(f.boundary::geography) / 10000)::numeric, 2) AS area_hectares
+FROM farms f
+WHERE f.is_active = TRUE 
+  AND f.boundary IS NOT NULL
+ORDER BY area_hectares DESC;`;
+    }
+
     return `-- تفعيل إضافات PostgreSQL الجغرافية والنصية
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -172,7 +188,7 @@ SELECT extname, extversion FROM pg_extension;`;
       </div>
 
       {/* Preset Query Switcher */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <button
           onClick={() => {
             setSelectedPreset('nearby_farms');
@@ -187,13 +203,13 @@ SELECT extname, extversion FROM pg_extension;`;
           }`}
         >
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-bold text-white">1. المزارع المجاورة (50 كم)</span>
+            <span className="text-xs font-bold text-white">1. المزارع المجاورة</span>
             <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-800">
               ST_DWithin
             </span>
           </div>
           <p className="text-[11px] text-stone-400 leading-snug">
-            البحث عن المزارع ضمن نطاق 50,000 متر من موقع بالقرب من ميلة (6.2625, 36.4501).
+            البحث عن المزارع ضمن نطاق 50 كم من موقع ميلة (6.2625, 36.4501).
           </p>
         </button>
 
@@ -212,13 +228,13 @@ SELECT extname, extversion FROM pg_extension;`;
           }`}
         >
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-bold text-white">2. بحث المحصول الأقرب سعراً</span>
+            <span className="text-xs font-bold text-white">2. بحث المحصول الأقرب</span>
             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800">
               JOIN + pg_trgm
             </span>
           </div>
           <p className="text-[11px] text-stone-400 leading-snug">
-            البحث عن محصول (مثل: زيت الزيتون) بالقرب من المشتري مرتبة حسب الأقرب والأقل سعراً.
+            البحث عن محصول بالقرب من المشتري مرتبة حسب الأقرب والأقل سعراً.
           </p>
         </button>
 
@@ -241,7 +257,28 @@ SELECT extname, extversion FROM pg_extension;`;
             </span>
           </div>
           <p className="text-[11px] text-stone-400 leading-snug">
-            فحص ما إذا كانت الشاحنة تقف داخل مضلع حدود مزرعة معينة (Point-in-Polygon).
+            فحص ما إذا كانت الشاحنة تقف داخل مضلع حدود مزرعة معينة.
+          </p>
+        </button>
+
+        <button
+          onClick={() => {
+            setSelectedPreset('farm_area');
+          }}
+          className={`p-3.5 rounded-xl border text-right transition-all flex flex-col justify-between ${
+            selectedPreset === 'farm_area'
+              ? 'bg-emerald-950/70 border-emerald-500/60 shadow-lg'
+              : 'bg-stone-900 border-stone-800 hover:border-stone-700'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-bold text-white">4. مساحات المزارع</span>
+            <span className="text-[10px] font-mono text-teal-400 bg-teal-950 px-1.5 py-0.5 rounded border border-teal-800">
+              ST_Area
+            </span>
+          </div>
+          <p className="text-[11px] text-stone-400 leading-snug">
+            حساب مساحة مضلع الحدود بالهكتار (ST_Area / 10000) والمتر المربع.
           </p>
         </button>
 
@@ -256,13 +293,13 @@ SELECT extname, extversion FROM pg_extension;`;
           }`}
         >
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-bold text-white">4. تفعيل وفحص الإضافات</span>
+            <span className="text-xs font-bold text-white">5. تفعيل الإضافات</span>
             <span className="text-[10px] font-mono text-purple-400 bg-purple-950 px-1.5 py-0.5 rounded border border-purple-800">
               EXTENSIONS
             </span>
           </div>
           <p className="text-[11px] text-stone-400 leading-snug">
-            أوامر CREATE EXTENSION postgis و uuid-ossp و pg_trgm للبيانات الجغرافية.
+            أوامر CREATE EXTENSION postgis و uuid-ossp و pg_trgm.
           </p>
         </button>
       </div>

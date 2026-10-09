@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { JoinedFarmCrop, CropCatalog } from '../types/database';
 import { calculateTrigramSimilarity } from '../lib/spatialEngine';
-import { Search, SlidersHorizontal, MapPin, Phone, Award, Sparkles, Calendar, ArrowUpDown, ChevronRight, Check } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, Phone, Award, Sparkles, Calendar, ArrowUpDown, ChevronRight, Check, Download, FileCode } from 'lucide-react';
 
 interface CropSearchProps {
   joinedCrops: JoinedFarmCrop[];
@@ -15,6 +15,7 @@ interface CropSearchProps {
   selectedFarmId: string | null;
   setSelectedFarmId: (id: string | null) => void;
   onViewCertificate: (crop: JoinedFarmCrop) => void;
+  onOpenExport?: () => void;
 }
 
 export const CropSearch: React.FC<CropSearchProps> = ({
@@ -29,6 +30,7 @@ export const CropSearch: React.FC<CropSearchProps> = ({
   selectedFarmId,
   setSelectedFarmId,
   onViewCertificate,
+  onOpenExport,
 }) => {
   const [organicOnly, setOrganicOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'AVAILABLE' | 'PRE_ORDER'>('ALL');
@@ -222,14 +224,28 @@ export const CropSearch: React.FC<CropSearchProps> = ({
       </div>
 
       {/* Results Count & Geo Query summary */}
-      <div className="flex items-center justify-between text-xs text-stone-400 px-1">
-        <span>
-          تم العثور على <strong className="text-emerald-400">{filteredCrops.length}</strong> محصول زراعي متاح ضمن نطاق{' '}
-          <strong className="text-cyan-400 font-mono">{maxDistanceKm} كم</strong>
-        </span>
-        <span className="font-mono text-[11px] text-stone-500 hidden sm:inline">
-          Spatial Index: GIST(location) - ST_DWithin
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-stone-400 px-1">
+        <div className="flex items-center gap-2">
+          <span>
+            تم العثور على <strong className="text-emerald-400 font-bold">{filteredCrops.length}</strong> محصول زراعي متاح ضمن نطاق{' '}
+            <strong className="text-cyan-400 font-mono">{maxDistanceKm} كم</strong>
+          </span>
+          <span className="font-mono text-[10px] text-stone-500 hidden md:inline">
+            • GIST Index ST_DWithin
+          </span>
+        </div>
+
+        {onOpenExport && (
+          <button
+            type="button"
+            onClick={onOpenExport}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md shadow-emerald-950/40"
+            title="تصدير المزارع والمحاصيل المفلترة الحالية إلى ملف GeoJSON لبرامج GIS"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>تصدير النتائج كـ GeoJSON (QGIS / ArcGIS)</span>
+          </button>
+        )}
       </div>
 
       {/* Cards Grid */}

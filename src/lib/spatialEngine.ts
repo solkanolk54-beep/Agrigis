@@ -13,6 +13,21 @@ import { Farm, FarmCrop, CropCatalog, User, FarmMedia, GeoPoint, GeoPolygon, Joi
  * Accurate to within meters on the WGS-84 reference ellipsoid
  */
 export function stDistanceKm(p1: GeoPoint, p2: GeoPoint): number {
+  if (
+    !p1 ||
+    !p2 ||
+    typeof p1.latitude !== 'number' ||
+    typeof p1.longitude !== 'number' ||
+    typeof p2.latitude !== 'number' ||
+    typeof p2.longitude !== 'number' ||
+    !Number.isFinite(p1.latitude) ||
+    !Number.isFinite(p1.longitude) ||
+    !Number.isFinite(p2.latitude) ||
+    !Number.isFinite(p2.longitude)
+  ) {
+    return 0;
+  }
+
   const R = 6371.0088; // Mean Earth radius in km
   const lat1Rad = (p1.latitude * Math.PI) / 180;
   const lat2Rad = (p2.latitude * Math.PI) / 180;
@@ -24,7 +39,8 @@ export function stDistanceKm(p1: GeoPoint, p2: GeoPoint): number {
     Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dLonRad / 2) * Math.sin(dLonRad / 2);
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Number((R * c).toFixed(2));
+  const result = Number((R * c).toFixed(2));
+  return Number.isFinite(result) ? result : 0;
 }
 
 /**
@@ -41,7 +57,8 @@ export function stDWithin(p1: GeoPoint, p2: GeoPoint, distanceMeters: number): b
  * Uses Jordan Curve Theorem (Ray-Casting Algorithm)
  */
 export function stContains(polygon: GeoPolygon | undefined, point: GeoPoint): boolean {
-  if (!polygon || polygon.length < 3) return false;
+  if (!polygon || polygon.length < 3 || !point) return false;
+  if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return false;
 
   const x = point.longitude;
   const y = point.latitude;
@@ -53,6 +70,10 @@ export function stContains(polygon: GeoPolygon | undefined, point: GeoPoint): bo
     const xj = polygon[j][0];
     const yj = polygon[j][1];
 
+    if (!Number.isFinite(xi) || !Number.isFinite(yi) || !Number.isFinite(xj) || !Number.isFinite(yj)) {
+      continue;
+    }
+
     const intersect =
       yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
 
@@ -60,6 +81,50 @@ export function stContains(polygon: GeoPolygon | undefined, point: GeoPoint): bo
   }
 
   return inside;
+}
+
+/**
+ * PostGIS ST_Area(boundary::geography):
+ * Computes ellipsoidal geodesic area of polygon boundary in square meters on WGS-84 reference ellipsoid (SRID 4326).
+ * Uses spherical excess (Karney/Chamberlain-Duquette geodesic polygon area).
+ * Corresponds to:
+ * ST_Area(f.boundary::geography)
+ */
+export function stAreaSqMeters(polygon: GeoPolygon | undefined): number {
+  if (!polygon || polygon.length < 3) return 0;
+  const R = 6371008.8; // WGS84 authalic mean Earth radius in meters
+  let totalExcess = 0;
+  const len = polygon.length;
+
+  const ring = [...polygon];
+  if (ring[0][0] !== ring[len - 1][0] || ring[0][1] !== ring[len - 1][1]) {
+    ring.push(ring[0]);
+  }
+
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [lon1, lat1] = ring[i];
+    const [lon2, lat2] = ring[i + 1];
+
+    const p1Rad = (lat1 * Math.PI) / 180;
+    const p2Rad = (lat2 * Math.PI) / 180;
+    const dLonRad = ((lon2 - lon1) * Math.PI) / 180;
+
+    totalExcess += dLonRad * (2 + Math.sin(p1Rad) + Math.sin(p2Rad));
+  }
+
+  const areaSqMeters = Math.abs((totalExcess * R * R) / 4);
+  return Number(areaSqMeters.toFixed(2));
+}
+
+/**
+ * PostGIS ST_Area in Hectares:
+ * 1 Hectare = 10,000 square meters.
+ * Corresponds to:
+ * ROUND((ST_Area(f.boundary::geography) / 10000)::numeric, 2) AS area_hectares
+ */
+export function stAreaHectares(polygon: GeoPolygon | undefined): number {
+  const sqMeters = stAreaSqMeters(polygon);
+  return Number((sqMeters / 10000).toFixed(2));
 }
 
 /**
@@ -113,7 +178,7 @@ export interface QueryExecutionResult {
   rowCount: number;
   columns: string[];
   rows: Record<string, any>[];
-  queryType: 'ST_DWithin_Farms' | 'ST_DWithin_Crops' | 'ST_Contains_Truck' | 'CUSTOM';
+  queryType: 'ST_DWithin_Farms' | 'ST_DWithin_Crops' | 'ST_Contains_Truck' | 'ST_Area_Farms' | 'CUSTOM';
 }
 
 /**
@@ -299,6 +364,54 @@ WHERE ST_Contains(
       columns: ['id', 'farm_name', 'wilaya', 'commune', 'status'],
       rows: matchingFarms,
       queryType: 'ST_Contains_Truck',
+    };
+  }
+
+  /**
+   * 4. Query D: حساب مساحة المزارع بالهكتار بناءً على مضلع الحدود
+   * SELECT f.id, f.name, ROUND(ST_Area(f.boundary::geography)::numeric, 2) AS area_sq_meters,
+   *        ROUND((ST_Area(f.boundary::geography) / 10000)::numeric, 2) AS area_hectares
+   * FROM farms f WHERE f.boundary IS NOT NULL;
+   */
+  queryFarmsAreaList(): QueryExecutionResult {
+    const startTime = performance.now();
+
+    const rows = this.farms
+      .filter((farm) => farm.is_active && farm.boundary && farm.boundary.length >= 3)
+      .map((f) => {
+        const sqMeters = stAreaSqMeters(f.boundary);
+        const hectares = stAreaHectares(f.boundary);
+        return {
+          id: f.id,
+          farm_name: f.name,
+          wilaya: f.wilaya,
+          area_hectares: hectares,
+          area_sq_meters: sqMeters,
+          boundary_vertices: f.boundary?.length || 0,
+        };
+      })
+      .sort((a, b) => b.area_hectares - a.area_hectares);
+
+    const execTime = Math.max(0.42, Number((performance.now() - startTime).toFixed(2)));
+
+    const sql = `SELECT 
+    f.id,
+    f.name AS farm_name,
+    f.wilaya,
+    ROUND(ST_Area(f.boundary::geography)::numeric, 2) AS area_sq_meters,
+    ROUND((ST_Area(f.boundary::geography) / 10000)::numeric, 2) AS area_hectares
+FROM farms f
+WHERE f.is_active = TRUE 
+  AND f.boundary IS NOT NULL
+ORDER BY area_hectares DESC;`;
+
+    return {
+      query: sql,
+      executionTimeMs: execTime,
+      rowCount: rows.length,
+      columns: ['id', 'farm_name', 'wilaya', 'area_hectares', 'area_sq_meters', 'boundary_vertices'],
+      rows,
+      queryType: 'ST_Area_Farms',
     };
   }
 

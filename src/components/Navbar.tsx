@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, MapPin, Compass, PlusCircle, ShieldCheck, Layers, Terminal, BarChart3 } from 'lucide-react';
+import { Database, MapPin, Compass, PlusCircle, ShieldCheck, Layers, Terminal, BarChart3, Download } from 'lucide-react';
 import { UserType } from '../types/database';
 
 interface NavbarProps {
@@ -9,6 +9,7 @@ interface NavbarProps {
   setUserType: (type: UserType) => void;
   onOpenAddModal: () => void;
   onResetData: () => void;
+  onOpenExport?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -18,6 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setUserType,
   onOpenAddModal,
   onResetData,
+  onOpenExport,
 }) => {
   return (
     <header className="bg-stone-900 border-b border-stone-800 sticky top-0 z-50">
@@ -107,6 +109,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <option value="ADMIN" className="bg-stone-900 text-white">مهندس GIS / مدير</option>
               </select>
             </div>
+
+            {/* GeoJSON Export Button */}
+            {onOpenExport && (
+              <button
+                onClick={onOpenExport}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white text-xs font-semibold border border-stone-700 transition-all shadow-sm"
+                title="تصدير المزارع الحالية كـ GeoJSON لنظم QGIS / ArcGIS"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">تصدير GeoJSON</span>
+              </button>
+            )}
 
             {/* Quick Add Button */}
             <button

@@ -12,7 +12,7 @@ import {
   SEED_MEDIA,
 } from './data/seedData';
 import { Farm, FarmCrop, CropCatalog, User, FarmMedia, GeoPoint, UserType, JoinedFarmCrop } from './types/database';
-import { PostGisEngine } from './lib/spatialEngine';
+import { stDistanceKm, PostGisEngine } from './lib/spatialEngine';
 import { Navbar } from './components/Navbar';
 import { MapView } from './components/MapView';
 import { CropSearch } from './components/CropSearch';
@@ -21,7 +21,8 @@ import { SchemaViewer } from './components/SchemaViewer';
 import { AddFarmModal } from './components/AddFarmModal';
 import { CertificateModal } from './components/CertificateModal';
 import { CropAnalyticsDashboard } from './components/CropAnalyticsDashboard';
-import { MapPin, Compass, Sparkles, Terminal, Database, RefreshCw, Layers, ShieldCheck, BarChart3 } from 'lucide-react';
+import { GeoJsonExportModal } from './components/GeoJsonExportModal';
+import { MapPin, Compass, Sparkles, Terminal, Database, RefreshCw, Layers, ShieldCheck, BarChart3, Download } from 'lucide-react';
 
 export default function App() {
   // Navigation & User Role
@@ -69,6 +70,7 @@ export default function App() {
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedCertificateCrop, setSelectedCertificateCrop] = useState<JoinedFarmCrop | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Sync to LocalStorage
   useEffect(() => {
@@ -85,6 +87,36 @@ export default function App() {
   const joinedCrops = useMemo(() => {
     return spatialEngine.getJoinedCrops(buyerLocation);
   }, [spatialEngine, buyerLocation]);
+
+  // Filtered Farms matching current spatial & search criteria for GeoJSON export
+  const filteredFarmsForExport = useMemo(() => {
+    return farms.filter((farm) => {
+      if (selectedFarmId) {
+        return farm.id === selectedFarmId;
+      }
+      const dist = stDistanceKm(farm.location, buyerLocation);
+      if (dist > maxDistanceKm) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const term = searchTerm.trim().toLowerCase();
+        const farmCrops = crops.filter((c) => c.farm_id === farm.id);
+        const matchesCrop = farmCrops.some((c) => c.title.toLowerCase().includes(term));
+        const matchesFarm =
+          farm.name.toLowerCase().includes(term) || farm.wilaya.toLowerCase().includes(term);
+        if (!matchesCrop && !matchesFarm) return false;
+      }
+      if (selectedCategory) {
+        const farmCrops = crops.filter((c) => c.farm_id === farm.id);
+        const matchesCat = farmCrops.some((c) => {
+          const cat = catalog.find((catItem) => catItem.id === c.crop_catalog_id);
+          return cat?.category === selectedCategory;
+        });
+        if (!matchesCat) return false;
+      }
+      return true;
+    });
+  }, [farms, crops, catalog, selectedFarmId, buyerLocation, maxDistanceKm, searchTerm, selectedCategory]);
 
   // Handle adding a new farm
   const handleAddFarm = (newFarm: Farm) => {
@@ -117,6 +149,7 @@ export default function App() {
         setUserType={setUserType}
         onOpenAddModal={() => setIsAddModalOpen(true)}
         onResetData={handleResetData}
+        onOpenExport={() => setIsExportModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -170,8 +203,14 @@ export default function App() {
         {/* Dynamic Tab Views */}
         {activeTab === 'map' && (
           <div className="space-y-6">
-            {/* Recharts Crop Category Distribution Dashboard (In the upper section) */}
-            <CropAnalyticsDashboard catalog={catalog} crops={crops} />
+            {/* Recharts Crop Analytics & Financial Yield Dashboard (In the upper section) */}
+            <CropAnalyticsDashboard
+              catalog={catalog}
+              crops={crops}
+              farms={farms}
+              selectedFarmId={selectedFarmId}
+              onSelectFarmId={setSelectedFarmId}
+            />
 
             {/* Interactive Map View */}
             <MapView
@@ -182,7 +221,9 @@ export default function App() {
               selectedFarmId={selectedFarmId}
               setSelectedFarmId={setSelectedFarmId}
               joinedCrops={joinedCrops}
+              catalog={catalog}
               onSelectCropForDetails={(c) => setSelectedCertificateCrop(c)}
+              onOpenExport={() => setIsExportModalOpen(true)}
             />
 
             {/* Crop Exploration Studio */}
@@ -198,6 +239,7 @@ export default function App() {
               selectedFarmId={selectedFarmId}
               setSelectedFarmId={setSelectedFarmId}
               onViewCertificate={(c) => setSelectedCertificateCrop(c)}
+              onOpenExport={() => setIsExportModalOpen(true)}
             />
           </div>
         )}
@@ -205,7 +247,13 @@ export default function App() {
         {activeTab === 'analytics' && (
           <div className="space-y-6">
             {/* Dedicated Full Analytics Dashboard */}
-            <CropAnalyticsDashboard catalog={catalog} crops={crops} />
+            <CropAnalyticsDashboard
+              catalog={catalog}
+              crops={crops}
+              farms={farms}
+              selectedFarmId={selectedFarmId}
+              onSelectFarmId={setSelectedFarmId}
+            />
 
             {/* Catalog breakdown table for production planning */}
             <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-xl space-y-4">
@@ -321,6 +369,14 @@ export default function App() {
       <CertificateModal
         crop={selectedCertificateCrop}
         onClose={() => setSelectedCertificateCrop(null)}
+      />
+
+      <GeoJsonExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        filteredFarms={filteredFarmsForExport}
+        joinedCrops={joinedCrops}
+        buyerLocation={buyerLocation}
       />
     </div>
   );
